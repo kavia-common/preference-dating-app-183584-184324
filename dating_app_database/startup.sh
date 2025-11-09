@@ -1,139 +1,128 @@
 #!/bin/bash
+set -euo pipefail
 
-# Minimal PostgreSQL startup script with full paths
-DB_NAME="myapp"
-DB_USER="appuser"
-DB_PASSWORD="dbuser123"
-DB_PORT="5000"
+# PostgreSQL startup script with init, config for 0.0.0.0:5001, and readiness probe
+DB_NAME="${POSTGRES_DB:-myapp}"
+DB_USER="${POSTGRES_USER:-appuser}"
+DB_PASSWORD="${POSTGRES_PASSWORD:-dbuser123}"
+DB_PORT="${POSTGRES_PORT:-5001}"
+PGDATA_DIR="${PGDATA:-/var/lib/postgresql/data}"
 
-echo "Starting PostgreSQL setup..."
+echo "Starting PostgreSQL setup on port ${DB_PORT} ..."
 
-# Find PostgreSQL version and set paths
+# Locate postgres binaries
 PG_VERSION=$(ls /usr/lib/postgresql/ | head -1)
 PG_BIN="/usr/lib/postgresql/${PG_VERSION}/bin"
+echo "Detected PostgreSQL version: ${PG_VERSION} (bin: ${PG_BIN})"
 
-echo "Found PostgreSQL version: ${PG_VERSION}"
+# Ensure data directory exists with proper permissions and ownership
+mkdir -p "${PGDATA_DIR}"
+chown -R postgres:postgres "${PGDATA_DIR}"
+chmod 700 "${PGDATA_DIR}"
 
-# Check if PostgreSQL is already running on the specified port
-if sudo -u postgres ${PG_BIN}/pg_isready -p ${DB_PORT} > /dev/null 2>&1; then
-    echo "PostgreSQL is already running on port ${DB_PORT}!"
-    echo "Database: ${DB_NAME}"
-    echo "User: ${DB_USER}"
-    echo "Port: ${DB_PORT}"
-    echo ""
-    echo "To connect to the database, use:"
-    echo "psql -h localhost -U ${DB_USER} -d ${DB_NAME} -p ${DB_PORT}"
-    
-    # Check if connection info file exists
-    if [ -f "db_connection.txt" ]; then
-        echo "Or use: $(cat db_connection.txt)"
-    fi
-    
-    echo ""
-    echo "Script stopped - server already running."
-    exit 0
+# Quick function to run as postgres
+run_as_postgres() {
+  sudo -u postgres "$@"
+}
+
+# If PGDATA is empty (no PG_VERSION), initialize it
+if [ ! -f "${PGDATA_DIR}/PG_VERSION" ]; then
+  echo "PGDATA empty. Initializing database cluster at ${PGDATA_DIR} ..."
+  run_as_postgres "${PG_BIN}/initdb" -D "${PGDATA_DIR}"
+
+  # Configure pg_hba.conf for local md5/scram and host connections
+  echo "Configuring pg_hba.conf ..."
+  cat > "${PGDATA_DIR}/pg_hba.conf" <<HBA
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+local   all             postgres                                peer
+local   all             all                                     md5
+host    all             all             127.0.0.1/32            md5
+host    all             all             0.0.0.0/0               md5
+host    all             all             ::1/128                 md5
+HBA
+
+  chown postgres:postgres "${PGDATA_DIR}/pg_hba.conf}"
 fi
 
-# Also check if there's a PostgreSQL process running (in case pg_isready fails)
-if pgrep -f "postgres.*-p ${DB_PORT}" > /dev/null 2>&1; then
-    echo "Found existing PostgreSQL process on port ${DB_PORT}"
-    echo "Attempting to verify connection..."
-    
-    # Try to connect and verify the database exists
-    if sudo -u postgres ${PG_BIN}/psql -p ${DB_PORT} -d ${DB_NAME} -c '\q' 2>/dev/null; then
-        echo "Database ${DB_NAME} is accessible."
-        echo "Script stopped - server already running."
-        exit 0
-    fi
-fi
+# Start postgres with explicit port and listen_addresses for 0.0.0.0
+echo "Starting PostgreSQL server (listen_addresses='*', port=${DB_PORT}) ..."
+run_as_postgres "${PG_BIN}/postgres" -D "${PGDATA_DIR}" -p "${DB_PORT}" -c listen_addresses='*' &
 
-# Initialize PostgreSQL data directory if it doesn't exist
-if [ ! -f "/var/lib/postgresql/data/PG_VERSION" ]; then
-    echo "Initializing PostgreSQL..."
-    sudo -u postgres ${PG_BIN}/initdb -D /var/lib/postgresql/data
-fi
+# Readiness: wait for server to accept connections
+echo "Waiting for PostgreSQL to accept connections ..."
+for i in $(seq 1 60); do
+  if run_as_postgres "${PG_BIN}/pg_isready" -h 127.0.0.1 -p "${DB_PORT}" -d "${DB_NAME}" -U "${DB_USER}" >/dev/null 2>&1; then
+    echo "pg_isready succeeded (host=127.0.0.1 port=${DB_PORT} db=${DB_NAME} user=${DB_USER})."
+    break
+  fi
 
-# Start PostgreSQL server in background
-echo "Starting PostgreSQL server..."
-sudo -u postgres ${PG_BIN}/postgres -D /var/lib/postgresql/data -p ${DB_PORT} &
+  # Fallback check to generic readiness if db/user don't exist yet
+  if run_as_postgres "${PG_BIN}/pg_isready" -h 127.0.0.1 -p "${DB_PORT}" >/dev/null 2>&1; then
+    echo "Server accepting connections; proceeding with DB/user creation ..."
+    break
+  fi
 
-# Wait for PostgreSQL to start
-echo "Waiting for PostgreSQL to start..."
-sleep 5
-
-# Check if PostgreSQL is running
-for i in {1..15}; do
-    if sudo -u postgres ${PG_BIN}/pg_isready -p ${DB_PORT} > /dev/null 2>&1; then
-        echo "PostgreSQL is ready!"
-        break
-    fi
-    echo "Waiting... ($i/15)"
-    sleep 2
+  echo "Waiting for PostgreSQL... (${i}/60)"
+  sleep 1
 done
 
-# Create database and user
-echo "Setting up database and user..."
-sudo -u postgres ${PG_BIN}/createdb -p ${DB_PORT} ${DB_NAME} 2>/dev/null || echo "Database might already exist"
-
-# Set up user and permissions with proper schema ownership
-sudo -u postgres ${PG_BIN}/psql -p ${DB_PORT} -d postgres << EOF
--- Create user if doesn't exist
+# Ensure superuser connection works (using postgres system user)
+# Create role and database idempotently
+echo "Creating role '${DB_USER}' and database '${DB_NAME}' if needed ..."
+run_as_postgres "${PG_BIN}/psql" -p "${DB_PORT}" -d postgres <<SQL
 DO \$\$
 BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${DB_USER}') THEN
-        CREATE ROLE ${DB_USER} WITH LOGIN PASSWORD '${DB_PASSWORD}';
-    END IF;
-    ALTER ROLE ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}') THEN
+    CREATE ROLE ${DB_USER} WITH LOGIN PASSWORD '${DB_PASSWORD}';
+  ELSE
+    ALTER ROLE ${DB_USER} WITH LOGIN PASSWORD '${DB_PASSWORD}';
+  END IF;
 END
 \$\$;
 
--- Grant database-level permissions
+-- Create database if not exists and grant privileges
+DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='${DB_NAME}') THEN
+    PERFORM dblink_connect('dbname=postgres');
+  END IF;
+END
+\$\$;
+SQL
+
+# Create database if not exists (psql friendly pattern)
+if ! run_as_postgres "${PG_BIN}/psql" -p "${DB_PORT}" -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1; then
+  run_as_postgres "${PG_BIN}/createdb" -p "${DB_PORT}" "${DB_NAME}"
+fi
+
+# Grant privileges and ensure schema access in target DB
+run_as_postgres "${PG_BIN}/psql" -p "${DB_PORT}" -d "${DB_NAME}" <<SQL
 GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};
-
--- Connect to the specific database for schema-level permissions
-\c ${DB_NAME}
-
--- For PostgreSQL 15+, we need to handle public schema permissions differently
--- First, grant usage on public schema
-GRANT USAGE ON SCHEMA public TO ${DB_USER};
-
--- Grant CREATE permission on public schema
-GRANT CREATE ON SCHEMA public TO ${DB_USER};
-
--- Make the user owner of all future objects they create in public schema
+GRANT USAGE, CREATE ON SCHEMA public TO ${DB_USER};
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO ${DB_USER};
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TYPES TO ${DB_USER};
-
--- If you want the user to be able to create objects without restrictions,
--- you can make them the owner of the public schema (optional but effective)
--- ALTER SCHEMA public OWNER TO ${DB_USER};
-
--- Alternative: Grant all privileges on schema public to the user
-GRANT ALL ON SCHEMA public TO ${DB_USER};
-
--- Ensure the user can work with any existing objects
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};
 GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO ${DB_USER};
-EOF
+SQL
 
-# Additionally, connect to the specific database to ensure permissions
-sudo -u postgres ${PG_BIN}/psql -p ${DB_PORT} -d ${DB_NAME} << EOF
--- Double-check permissions are set correctly in the target database
-GRANT ALL ON SCHEMA public TO ${DB_USER};
-GRANT CREATE ON SCHEMA public TO ${DB_USER};
+# Final readiness loop with exact target DB/user
+echo "Verifying readiness with pg_isready for db=${DB_NAME} user=${DB_USER} ..."
+for i in $(seq 1 60); do
+  if run_as_postgres "${PG_BIN}/pg_isready" -h 127.0.0.1 -p "${DB_PORT}" -d "${DB_NAME}" -U "${DB_USER}" >/dev/null 2>&1; then
+    echo "PostgreSQL ready."
+    READY=1
+    break
+  fi
+  sleep 1
+done
 
--- Show current permissions for debugging
-\dn+ public
-EOF
-
-# Save connection command to a file
+# Update connection helper and env mapping (port 5001)
 echo "psql postgresql://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}" > db_connection.txt
-echo "Connection string saved to db_connection.txt"
 
-# Save environment variables to a file
+mkdir -p db_visualizer
 cat > db_visualizer/postgres.env << EOF
 export POSTGRES_URL="postgresql://localhost:${DB_PORT}/${DB_NAME}"
 export POSTGRES_USER="${DB_USER}"
@@ -142,14 +131,9 @@ export POSTGRES_DB="${DB_NAME}"
 export POSTGRES_PORT="${DB_PORT}"
 EOF
 
-echo "PostgreSQL setup complete!"
+echo "Configuration complete."
 echo "Database: ${DB_NAME}"
 echo "User: ${DB_USER}"
 echo "Port: ${DB_PORT}"
-echo ""
-
+echo "Connection helper saved to db_connection.txt"
 echo "Environment variables saved to db_visualizer/postgres.env"
-
-echo "To connect to the database, use one of the following commands:"
-echo "psql -h localhost -U ${DB_USER} -d ${DB_NAME} -p ${DB_PORT}"
-echo "$(cat db_connection.txt)"
