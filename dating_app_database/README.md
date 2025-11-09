@@ -8,6 +8,7 @@ What changed:
 - The server binds to 0.0.0.0 and a readiness probe (pg_isready) confirms availability.
 - No db_visualizer folder or Node-related files are created during startup.
 - A Dockerfile and docker-compose.yml are provided and contain no references to any "db_visualizer" directory.
+- CI/build/startup scripts must not attempt to `cd` into `dating_app_database/db_visualizer`. The correct path for all operations is simply `dating_app_database` (e.g., `docker build -t dating_app_database ./dating_app_database`).
 
 How to use (local script):
 - Run ./startup.sh to initialize and start Postgres.
