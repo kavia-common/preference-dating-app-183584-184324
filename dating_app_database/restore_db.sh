@@ -26,11 +26,12 @@ if [ -f "database_backup.sql" ]; then
     PG_VERSION=$(ls /usr/lib/postgresql/ 2>/dev/null | head -1 || true)
     if [ -n "${PG_VERSION:-}" ]; then
         PG_BIN="/usr/lib/postgresql/${PG_VERSION}/bin"
+        HOST_ARG="${PGHOST:-127.0.0.1}"
         # Check readiness on the configured port (default 5001)
-        if sudo -u postgres "${PG_BIN}/pg_isready" -h localhost -p "${DB_PORT}" >/dev/null 2>&1; then
+        if sudo -u postgres "${PG_BIN}/pg_isready" -h "${HOST_ARG}" -p "${DB_PORT}" >/dev/null 2>&1; then
             echo "Restoring PostgreSQL database from backup as superuser on port ${DB_PORT} ..."
             # Run restore into 'postgres' so dump can DROP/CREATE myapp and \connect
-            if sudo -u postgres "${PG_BIN}/psql" -h localhost -p "${DB_PORT}" -d postgres -v ON_ERROR_STOP=1 < database_backup.sql; then
+            if sudo -u postgres "${PG_BIN}/psql" -h "${HOST_ARG}" -p "${DB_PORT}" -d postgres -v ON_ERROR_STOP=1 < database_backup.sql; then
                 echo "✓ PostgreSQL database restored successfully."
                 exit 0
             else
@@ -42,11 +43,11 @@ if [ -f "database_backup.sql" ]; then
     fi
 
     # Try MySQL - Do not specify a database because the dump may contain CREATE DATABASE
-    if mysqladmin ping -h localhost -P "${DB_PORT}" --silent 2>/dev/null || \
+    if mysqladmin ping -h "${HOST_ARG}" -P "${DB_PORT}" --silent 2>/dev/null || \
        sudo mysqladmin ping --socket=/var/run/mysqld/mysqld.sock --silent 2>/dev/null; then
         echo "Restoring MySQL database from backup..."
-        if mysql -h localhost -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASSWORD}" -e "SELECT 1" >/dev/null 2>&1; then
-            if mysql -h localhost -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASSWORD}" < database_backup.sql; then
+        if mysql -h "${HOST_ARG}" -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASSWORD}" -e "SELECT 1" >/dev/null 2>&1; then
+            if mysql -h "${HOST_ARG}" -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASSWORD}" < database_backup.sql; then
                 echo "✓ Database restored successfully (MySQL via TCP port ${DB_PORT})"
                 exit 0
             else
@@ -56,8 +57,8 @@ if [ -f "database_backup.sql" ]; then
             fi
         fi
 
-        if mysql -h localhost -P "${DB_PORT}" -u root -p"${DB_PASSWORD}" -e "SELECT 1" >/dev/null 2>&1; then
-            if mysql -h localhost -P "${DB_PORT}" -u root -p"${DB_PASSWORD}" < database_backup.sql; then
+        if mysql -h "${HOST_ARG}" -P "${DB_PORT}" -u root -p"${DB_PASSWORD}" -e "SELECT 1" >/dev/null 2>&1; then
+            if mysql -h "${HOST_ARG}" -P "${DB_PORT}" -u root -p"${DB_PASSWORD}" < database_backup.sql; then
                 echo "✓ Database restored successfully (MySQL via TCP port ${DB_PORT} as root)"
                 exit 0
             else
