@@ -41,7 +41,8 @@ host    all             all             0.0.0.0/0               md5
 host    all             all             ::1/128                 md5
 HBA
 
-  chown postgres:postgres "${PGDATA_DIR}/pg_hba.conf}"
+  # Fix: correct path without stray brace
+  chown postgres:postgres "${PGDATA_DIR}/pg_hba.conf"
 fi
 
 # Start postgres with explicit port and listen_addresses for 0.0.0.0
@@ -66,31 +67,21 @@ for i in $(seq 1 60); do
   sleep 1
 done
 
-# Ensure superuser connection works (using postgres system user)
-# Create role and database idempotently
+# Ensure role and database exist (idempotent)
 echo "Creating role '${DB_USER}' and database '${DB_NAME}' if needed ..."
 run_as_postgres "${PG_BIN}/psql" -p "${DB_PORT}" -d postgres <<SQL
 DO \$\$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}') THEN
-    CREATE ROLE ${DB_USER} WITH LOGIN PASSWORD '${DB_PASSWORD}';
+    EXECUTE format('CREATE ROLE %I WITH LOGIN PASSWORD %L', '${DB_USER}', '${DB_PASSWORD}');
   ELSE
-    ALTER ROLE ${DB_USER} WITH LOGIN PASSWORD '${DB_PASSWORD}';
-  END IF;
-END
-\$\$;
-
--- Create database if not exists and grant privileges
-DO \$\$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='${DB_NAME}') THEN
-    PERFORM dblink_connect('dbname=postgres');
+    EXECUTE format('ALTER ROLE %I WITH LOGIN PASSWORD %L', '${DB_USER}', '${DB_PASSWORD}');
   END IF;
 END
 \$\$;
 SQL
 
-# Create database if not exists (psql friendly pattern)
+# Create database if not exists
 if ! run_as_postgres "${PG_BIN}/psql" -p "${DB_PORT}" -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1; then
   run_as_postgres "${PG_BIN}/createdb" -p "${DB_PORT}" "${DB_NAME}"
 fi
@@ -110,6 +101,7 @@ SQL
 
 # Final readiness loop with exact target DB/user
 echo "Verifying readiness with pg_isready for db=${DB_NAME} user=${DB_USER} ..."
+READY=0
 for i in $(seq 1 60); do
   if run_as_postgres "${PG_BIN}/pg_isready" -h 127.0.0.1 -p "${DB_PORT}" -d "${DB_NAME}" -U "${DB_USER}" >/dev/null 2>&1; then
     echo "PostgreSQL ready."
@@ -119,21 +111,16 @@ for i in $(seq 1 60); do
   sleep 1
 done
 
-# Update connection helper and env mapping (port 5001)
-echo "psql postgresql://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}" > db_connection.txt
+if [ "${READY}" -ne 1 ]; then
+  echo "PostgreSQL did not become ready in time."
+  exit 1
+fi
 
-mkdir -p db_visualizer
-cat > db_visualizer/postgres.env << EOF
-export POSTGRES_URL="postgresql://localhost:${DB_PORT}/${DB_NAME}"
-export POSTGRES_USER="${DB_USER}"
-export POSTGRES_PASSWORD="${DB_PASSWORD}"
-export POSTGRES_DB="${DB_NAME}"
-export POSTGRES_PORT="${DB_PORT}"
-EOF
+# Update connection helper (no Node/db_visualizer artifacts)
+echo "psql postgresql://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}" > db_connection.txt
 
 echo "Configuration complete."
 echo "Database: ${DB_NAME}"
 echo "User: ${DB_USER}"
 echo "Port: ${DB_PORT}"
 echo "Connection helper saved to db_connection.txt"
-echo "Environment variables saved to db_visualizer/postgres.env"
