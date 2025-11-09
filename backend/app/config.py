@@ -18,7 +18,9 @@ class Settings(BaseSettings):
 
     # PUBLIC_INTERFACE
     def build_db_url(self) -> str:
-        """Build SQLAlchemy database URL from DATABASE_URL or the discrete PG variables."""
+        """Build SQLAlchemy database URL from DATABASE_URL (preferred)
+        or compose one from the discrete PG* environment variables.
+        """
         if self.DATABASE_URL:
             return self.DATABASE_URL
         return f"postgresql+psycopg2://{self.PGUSER}:{self.PGPASSWORD}@{self.PGHOST}:{self.PGPORT}/{self.PGDATABASE}"

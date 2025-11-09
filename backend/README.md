@@ -8,6 +8,56 @@ This backend connects to the existing PostgreSQL container running on TCP port 5
 - DB: PostgreSQL (via env)
 - Port: 8000 (default, configurable via .env)
 
+## Run with preview DB (port 5001)
+
+Use the existing preview PostgreSQL that is already running on localhost:5001.
+
+1) Create your virtual environment and install deps:
+```
+cd preference-dating-app-183584-184324/backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+2) Create .env from template and keep defaults (pointing to preview DB on 5001):
+```
+cp .env.example .env
+# edit only if your host/port differ; defaults are:
+# DATABASE_URL=postgresql+psycopg2://appuser:dbuser123@localhost:5001/myapp
+# or the discrete PG* variables shown below
+```
+
+3) Run Alembic migrations and seed preset categories:
+```
+alembic upgrade head
+python -m app.seeds.seed_categories
+```
+
+4) Start the FastAPI app (0.0.0.0 for accessibility):
+```
+uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT:-8000}
+```
+
+Open http://localhost:8000/docs for Swagger UI.
+
+### Example .env values
+
+Single DATABASE_URL (recommended):
+```
+DATABASE_URL=postgresql+psycopg2://appuser:dbuser123@localhost:5001/myapp
+APP_PORT=8000
+```
+
+Discrete PG* variables (used if DATABASE_URL is empty):
+```
+PGHOST=localhost
+PGPORT=5001
+PGDATABASE=myapp
+PGUSER=appuser
+PGPASSWORD=dbuser123
+APP_PORT=8000
+```
+
 ## Features in this scaffold
 
 - Core domain tables:
@@ -51,20 +101,6 @@ Required environment variables:
 - DATABASE_URL or the discrete PG variables (PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE)
 - APP_PORT (optional; defaults to 8000)
 
-Example (connects to existing DB container):
-```
-DATABASE_URL=postgresql+psycopg2://appuser:dbuser123@localhost:5001/myapp
-```
-
-If you prefer discrete vars:
-```
-PGHOST=localhost
-PGPORT=5001
-PGDATABASE=myapp
-PGUSER=appuser
-PGPASSWORD=dbuser123
-```
-
 ## Installation
 
 From backend directory:
@@ -89,7 +125,7 @@ This creates the required tables and seeds height/weight categories.
 ## Run the API
 
 ```
-uvicorn app.main:app --reload --port ${APP_PORT:-8000}
+uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT:-8000}
 ```
 
 API docs: http://localhost:8000/docs
