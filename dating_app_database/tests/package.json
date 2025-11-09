@@ -1,0 +1,17 @@
+{
+  "name": "dating_app_database-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Database-only test suite for PostgreSQL (dating_app_database).",
+  "scripts": {
+    "test": "node --test --test-reporter spec ./test/*.test.js",
+    "test:ci": "CI=true node --test --test-reporter tap ./test/*.test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "pg": "^8.12.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
