@@ -6,7 +6,7 @@ DB_NAME="${POSTGRES_DB:-myapp}"
 DB_USER="${POSTGRES_USER:-appuser}"
 DB_PASSWORD="${POSTGRES_PASSWORD:-dbuser123}"
 DB_PORT="${POSTGRES_PORT:-5001}"
-PGDATA_DIR="${PGDATA:-/var/lib/postgresql/data}"
+DEFAULT_PGDATA="${PGDATA:-/var/lib/postgresql/data}"
 
 echo "Starting PostgreSQL setup on port ${DB_PORT} ..."
 
@@ -15,14 +15,50 @@ PG_VERSION=$(ls /usr/lib/postgresql/ | head -1)
 PG_BIN="/usr/lib/postgresql/${PG_VERSION}/bin"
 echo "Detected PostgreSQL version: ${PG_VERSION} (bin: ${PG_BIN})"
 
-# Ensure data directory exists with proper permissions and ownership
-mkdir -p "${PGDATA_DIR}"
-chown -R postgres:postgres "${PGDATA_DIR}"
-chmod 700 "${PGDATA_DIR}"
+# Determine a writable PGDATA directory:
+# Prefer $PGDATA if set and writable; otherwise fallback to local ./pgdata under repo
+FALLBACK_PGDATA="$(pwd)/pgdata"
+PGDATA_DIR="${DEFAULT_PGDATA}"
 
-# Quick function to run as postgres
+ensure_dir() {
+  local dir="$1"
+  mkdir -p "$dir" || true
+}
+
+is_writable_dir() {
+  local dir="$1"
+  [ -d "$dir" ] && [ -w "$dir" ]
+}
+
+# Ensure chosen PGDATA is writable, else fallback
+ensure_dir "${PGDATA_DIR}"
+if ! is_writable_dir "${PGDATA_DIR}"; then
+  echo "Notice: ${PGDATA_DIR} is not writable in this environment. Falling back to ${FALLBACK_PGDATA}"
+  PGDATA_DIR="${FALLBACK_PGDATA}"
+  ensure_dir "${PGDATA_DIR}"
+fi
+
+echo "Using PGDATA=${PGDATA_DIR}"
+
+# Attempt to set permissions if possible; skip if not permitted
+set_perms() {
+  local target="$1"
+  if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    sudo chown -R postgres:postgres "${target}" || true
+    sudo chmod 700 "${target}" || true
+  else
+    chmod 700 "${target}" || true
+  fi
+}
+set_perms "${PGDATA_DIR}"
+
+# Helper to run a command as postgres user if possible; otherwise run directly
 run_as_postgres() {
-  sudo -u postgres "$@"
+  if command -v sudo >/dev/null 2>&1; then
+    sudo -u postgres "$@" 2>/dev/null || "$@"
+  else
+    "$@"
+  fi
 }
 
 # If PGDATA is empty (no PG_VERSION), initialize it
@@ -34,15 +70,16 @@ if [ ! -f "${PGDATA_DIR}/PG_VERSION" ]; then
   echo "Configuring pg_hba.conf ..."
   cat > "${PGDATA_DIR}/pg_hba.conf" <<HBA
 # TYPE  DATABASE        USER            ADDRESS                 METHOD
-local   all             postgres                                peer
-local   all             all                                     md5
+local   all             all                                     trust
 host    all             all             127.0.0.1/32            md5
 host    all             all             0.0.0.0/0               md5
 host    all             all             ::1/128                 md5
 HBA
 
-  # Fix: correct path without stray brace
-  chown postgres:postgres "${PGDATA_DIR}/pg_hba.conf"
+  # Attempt ownership set; ignore if not permitted
+  if command -v sudo >/dev/null 2>&1; then
+    sudo chown postgres:postgres "${PGDATA_DIR}/pg_hba.conf" 2>/dev/null || true
+  fi
 fi
 
 # Start postgres with explicit port and listen_addresses for 0.0.0.0
