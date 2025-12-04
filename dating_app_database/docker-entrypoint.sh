@@ -1,10 +1,21 @@
 #!/bin/bash
 set -euo pipefail
 
-# Move to working directory where startup.sh was copied
-cd /opt/dating_app_database
+# Validate and move to working directory where startup.sh was copied
+WORKDIR="/opt/dating_app_database"
+if [ ! -d "$WORKDIR" ]; then
+  echo "Error: Expected working directory '$WORKDIR' does not exist."
+  echo "Please ensure the Dockerfile sets WORKDIR correctly and copies scripts there."
+  exit 1
+fi
+cd "$WORKDIR"
 
 # Run the PostgreSQL startup and initialization
+if [ ! -x "./startup.sh" ]; then
+  echo "Error: startup.sh not found or not executable in $WORKDIR"
+  ls -l
+  exit 1
+fi
 ./startup.sh
 
 # Keep the container running and tail postgres logs if available

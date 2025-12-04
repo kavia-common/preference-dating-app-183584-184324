@@ -10,6 +10,8 @@ ENV POSTGRES_DB=myapp \
     POSTGRES_PORT=5001
 
 # Working directory for database container assets
+# Note: We intentionally use /opt/dating_app_database and do not reference any 'db_visualizer' subdirectory.
+# All scripts are copied into this directory and invoked from docker-entrypoint.sh.
 WORKDIR /opt/dating_app_database
 
 # Copy only what we need
