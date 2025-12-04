@@ -1,6 +1,6 @@
 # Dating App Backend (FastAPI)
 
-This service exposes REST and WebSocket APIs for the Preference Dating App and connects to the PostgreSQL database container.
+This service exposes REST and WebSocket APIs for the Preference Dating App and connects to the PostgreSQL database container (port 5001). Ensure the database has the required schema before running: see ../dating_app_database/sql_setup_instructions.md for psql one-by-one commands to create tables and seed demo data.
 
 Run:
 - Install: `pip install -r requirements.txt`
