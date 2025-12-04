@@ -1,55 +1,20 @@
-# Dating App Database Container
+# Dating App Database
 
-This container builds and runs a PostgreSQL instance for the Preference Dating App.
-
-Key points:
-- Base image: postgres:15
-- Exposed port: 5001 (overridable via POSTGRES_PORT)
-- WORKDIR: /opt/dating_app_database
-- Startup flow: docker-entrypoint.sh -> startup.sh (which launches postgres in background and performs idempotent init)
+This directory contains the PostgreSQL database resources for the Preference Dating App.
+All scripts and Dockerfiles use the WORKDIR `/opt/dating_app_database`. There is no `db_visualizer` subdirectory.
 
 Verification of db_visualizer removal:
 - No references to `db_visualizer` remain anywhere in the build or startup paths.
 - A repository-wide search confirms there are no remaining references to `db_visualizer`, nor any commands attempting to `cd` into `dating_app_database/db_visualizer` in the Dockerfile, entrypoint, startup scripts, CI/build scripts, hidden configs, or any RUN/CMD statements.
 - Scripts and Dockerfile use WORKDIR `/opt/dating_app_database` and do not assume any nested directories like `db_visualizer`.
-- Guardrail: Do not add any commands that reference `db_visualizer` or attempt to `cd` into subfolders that do not exist; all scripts should execute from `/opt/dating_app_database`.
 
 Where could a stray "cd dating_app_database/db_visualizer" come from?
-- External preview/build orchestrators sometimes carry over legacy scripts or paths.
-- Check these locations outside of this container’s code:
-  - Root-level CI configs: .github/workflows/*.yml, .gitlab-ci.yml, Azure/GCP CI YAMLs
-  - Devcontainer and preview configs: .devcontainer/, .vscode/tasks.json, .kavia/, .knowledge/
-  - Root Makefile, shell scripts under scripts/, tools/, or hidden dotfiles
+- External preview/build system configurations sometimes hardcode a subdirectory name.
 - If any such config tries to "cd preference-dating-app-183584-184324/dating_app_database/db_visualizer" or similar, update it to:
-  preference-dating-app-183584-184324/dating_app_database
-  and ensure commands run from WORKDIR /opt/dating_app_database inside the container.
+  - Repo path: preference-dating-app-183584-184324/dating_app_database
+  - Container WORKDIR: /opt/dating_app_database
 
-Quick verification command from repo root:
-  grep -RIn \"dating_app_database/db_visualizer\\|db_visualizer\" -n || true
+Quick check script:
+- Run the following from repo root to ensure nothing in-repo still references db_visualizer:
+  grep -RIn "dating_app_database/db_visualizer\|db_visualizer" -n || true
 
-Build and run:
-
-1) Build the image (from repository root or this directory):
-   docker build -t dating_app_database:latest preference-dating-app-183584-184324/dating_app_database
-
-2) Run the container:
-   docker run --name dating-db -p 5001:5001 \
-     -e POSTGRES_DB=myapp \
-     -e POSTGRES_USER=appuser \
-     -e POSTGRES_PASSWORD=dbuser123 \
-     dating_app_database:latest
-
-Environment variables:
-- POSTGRES_DB (default: myapp)
-- POSTGRES_USER (default: appuser)
-- POSTGRES_PASSWORD (default: dbuser123)
-- POSTGRES_PORT (default: 5001)
-
-Notes:
-- startup.sh ensures PGDATA initialization, creates/updates the role and database, and makes Postgres listen on 0.0.0.0:${POSTGRES_PORT}.
-- docker-entrypoint.sh does not `cd` into any removed directories; it relies on WORKDIR `/opt/dating_app_database`.
-- If you mount a volume to /var/lib/postgresql/data, ensure permissions allow postgres to write (handled best by Docker volume defaults).
-
-Troubleshooting:
-- To verify readiness: psql postgresql://appuser:dbuser123@localhost:5001/myapp
-- To view logs: docker logs -f dating-db
