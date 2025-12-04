@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# Guardrail: Do not assume any subdirectory like 'db_visualizer'; run from current working directory.
 # Universal Database Backup Script
 # Automatically detects and backs up the running database
 

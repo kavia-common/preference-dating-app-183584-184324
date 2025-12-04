@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+# Guardrail: Never cd into any removed subdir like 'db_visualizer'. All scripts run from this fixed WORKDIR.
 # Validate and move to working directory where startup.sh was copied
 WORKDIR="/opt/dating_app_database"
 if [ ! -d "$WORKDIR" ]; then

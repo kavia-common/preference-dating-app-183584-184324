@@ -10,8 +10,9 @@ Key points:
 
 Verification of db_visualizer removal:
 - No references to `db_visualizer` remain anywhere in the build or startup paths.
-- A repository-wide search confirms there are no remaining references to `db_visualizer`, nor any commands attempting to `cd` into `dating_app_database/db_visualizer` in the Dockerfile, entrypoint, startup scripts, CI/build scripts, or any RUN/CMD statements.
+- A repository-wide search confirms there are no remaining references to `db_visualizer`, nor any commands attempting to `cd` into `dating_app_database/db_visualizer` in the Dockerfile, entrypoint, startup scripts, CI/build scripts, hidden configs, or any RUN/CMD statements.
 - Scripts and Dockerfile use WORKDIR `/opt/dating_app_database` and do not assume any nested directories like `db_visualizer`.
+- Guardrail: Do not add any commands that reference `db_visualizer` or attempt to `cd` into subfolders that do not exist; all scripts should execute from `/opt/dating_app_database`.
 
 Build and run:
 

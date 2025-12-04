@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+# Guardrail: This script must run from /opt/dating_app_database and must not reference 'db_visualizer'.
 # PostgreSQL startup script with init, config for 0.0.0.0:5001, and readiness probe
 DB_NAME="${POSTGRES_DB:-myapp}"
 DB_USER="${POSTGRES_USER:-appuser}"

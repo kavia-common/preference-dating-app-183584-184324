@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+# Guardrail: Do not assume any subdirectory like 'db_visualizer'; run from current working directory.
 # Universal Database Restore Script
 # Automatically detects backup type and restores to running database
 # Behavior:
