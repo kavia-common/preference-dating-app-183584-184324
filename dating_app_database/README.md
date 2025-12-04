@@ -14,6 +14,19 @@ Verification of db_visualizer removal:
 - Scripts and Dockerfile use WORKDIR `/opt/dating_app_database` and do not assume any nested directories like `db_visualizer`.
 - Guardrail: Do not add any commands that reference `db_visualizer` or attempt to `cd` into subfolders that do not exist; all scripts should execute from `/opt/dating_app_database`.
 
+Where could a stray "cd dating_app_database/db_visualizer" come from?
+- External preview/build orchestrators sometimes carry over legacy scripts or paths.
+- Check these locations outside of this container’s code:
+  - Root-level CI configs: .github/workflows/*.yml, .gitlab-ci.yml, Azure/GCP CI YAMLs
+  - Devcontainer and preview configs: .devcontainer/, .vscode/tasks.json, .kavia/, .knowledge/
+  - Root Makefile, shell scripts under scripts/, tools/, or hidden dotfiles
+- If any such config tries to "cd preference-dating-app-183584-184324/dating_app_database/db_visualizer" or similar, update it to:
+  preference-dating-app-183584-184324/dating_app_database
+  and ensure commands run from WORKDIR /opt/dating_app_database inside the container.
+
+Quick verification command from repo root:
+  grep -RIn \"dating_app_database/db_visualizer\\|db_visualizer\" -n || true
+
 Build and run:
 
 1) Build the image (from repository root or this directory):
