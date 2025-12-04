@@ -2,11 +2,10 @@
 
 This container is dedicated to running PostgreSQL only for the MatchFilter Dating App.
 
-What changed:
-- Removed an accidental Node.js "db_visualizer" utility (e.g., server.js, package.json, postgres.env). This container must not run any Node processes.
+What this container does:
+- Runs PostgreSQL only; no Node processes or extra utilities.
 - startup.sh is responsible solely for starting and configuring PostgreSQL on port 5001 and preparing the database and user.
 - The server binds to 0.0.0.0 and a readiness probe (pg_isready) confirms availability.
-- No db_visualizer folder or Node-related files are created during startup.
 
 How to build and run (Docker):
 1) Build the image

@@ -153,7 +153,7 @@ if [ "${READY}" -ne 1 ]; then
   exit 1
 fi
 
-# Update connection helper (no Node/db_visualizer artifacts)
+# Update connection helper file
 echo "psql postgresql://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}" > db_connection.txt
 
 echo "Configuration complete."

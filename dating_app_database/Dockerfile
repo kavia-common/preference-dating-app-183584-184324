@@ -9,7 +9,7 @@ ENV POSTGRES_DB=myapp \
     POSTGRES_PASSWORD=dbuser123 \
     POSTGRES_PORT=5001
 
-# Working directory for our app assets (no db_visualizer folder)
+# Working directory for database container assets
 WORKDIR /opt/dating_app_database
 
 # Copy only what we need
